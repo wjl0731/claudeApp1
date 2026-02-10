@@ -1,11 +1,11 @@
 const express = require('express');
-const db = require('../database');
 const { authMiddleware, ownerOnly } = require('../middleware/auth');
 
 const router = express.Router();
 
 // Owner: add service
 router.post('/', authMiddleware, ownerOnly, (req, res) => {
+  const db = req.db;
   const shop = db.prepare('SELECT id FROM shops WHERE owner_id = ?').get(req.user.id);
   if (!shop) return res.status(400).json({ error: '请先创建店铺' });
   const { name, description, price, duration, category } = req.body;
@@ -13,11 +13,13 @@ router.post('/', authMiddleware, ownerOnly, (req, res) => {
   const result = db.prepare('INSERT INTO services (shop_id, name, description, price, duration, category) VALUES (?,?,?,?,?,?)').run(
     shop.id, name, description, price, duration || 60, category || '美甲'
   );
+  db.save();
   res.json(db.prepare('SELECT * FROM services WHERE id = ?').get(result.lastInsertRowid));
 });
 
 // Owner: update service
 router.put('/:id', authMiddleware, ownerOnly, (req, res) => {
+  const db = req.db;
   const shop = db.prepare('SELECT id FROM shops WHERE owner_id = ?').get(req.user.id);
   const service = db.prepare('SELECT * FROM services WHERE id = ? AND shop_id = ?').get(req.params.id, shop?.id);
   if (!service) return res.status(404).json({ error: '服务不存在' });
@@ -26,15 +28,18 @@ router.put('/:id', authMiddleware, ownerOnly, (req, res) => {
     name || service.name, description ?? service.description, price ?? service.price,
     duration ?? service.duration, category || service.category, is_active ?? service.is_active, service.id
   );
+  db.save();
   res.json(db.prepare('SELECT * FROM services WHERE id = ?').get(service.id));
 });
 
 // Owner: delete service
 router.delete('/:id', authMiddleware, ownerOnly, (req, res) => {
+  const db = req.db;
   const shop = db.prepare('SELECT id FROM shops WHERE owner_id = ?').get(req.user.id);
   const service = db.prepare('SELECT * FROM services WHERE id = ? AND shop_id = ?').get(req.params.id, shop?.id);
   if (!service) return res.status(404).json({ error: '服务不存在' });
   db.prepare('DELETE FROM services WHERE id = ?').run(service.id);
+  db.save();
   res.json({ success: true });
 });
 
