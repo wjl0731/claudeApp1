@@ -8,9 +8,8 @@ const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json());
-app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
-// Make db available to all routes via middleware
+// Attach DB to every request
 app.use(async (req, res, next) => {
   try {
     req.db = await getDb();
@@ -21,10 +20,8 @@ app.use(async (req, res, next) => {
 });
 
 // API routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/shops', require('./routes/shops'));
-app.use('/api/services', require('./routes/services'));
-app.use('/api/appointments', require('./routes/appointments'));
+app.use('/api/skills', require('./routes/skills'));
+app.use('/api/ai', require('./routes/ai'));
 
 // Serve static files in production
 if (process.env.NODE_ENV === 'production') {
@@ -34,10 +31,9 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// Initialize DB then start server
 getDb().then(() => {
   app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`AI Workflow Builder server running on http://localhost:${PORT}`);
   });
 }).catch(err => {
   console.error('Failed to initialize database:', err);
