@@ -1,11 +1,9 @@
 const initSqlJs = require('sql.js');
 const fs = require('fs');
 const path = require('path');
-const bcrypt = require('bcryptjs');
 
-const DB_PATH = path.join(__dirname, '..', 'nail_booking.db');
+const DB_PATH = path.join(__dirname, '..', 'ai_workflow.db');
 
-// Wrapper class to provide a better-sqlite3 compatible API on top of sql.js
 class DatabaseWrapper {
   constructor(sqlDb) {
     this._db = sqlDb;
@@ -20,7 +18,6 @@ class DatabaseWrapper {
     return {
       run(...params) {
         db.run(sql, params);
-        // Return info about last insert
         const lastId = db.exec('SELECT last_insert_rowid() as id')[0]?.values[0]?.[0];
         return { lastInsertRowid: lastId, changes: db.getRowsModified() };
       },
@@ -79,109 +76,91 @@ async function getDb() {
 
   const db = new DatabaseWrapper(sqlDb);
 
-  db.exec('PRAGMA foreign_keys = ON');
-
   db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
+    CREATE TABLE IF NOT EXISTS skills (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      phone TEXT UNIQUE NOT NULL,
-      password TEXT NOT NULL,
       name TEXT NOT NULL,
-      avatar TEXT DEFAULT NULL,
-      role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user', 'owner')),
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS shops (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      owner_id INTEGER NOT NULL REFERENCES users(id),
-      name TEXT NOT NULL,
-      description TEXT,
-      address TEXT,
-      phone TEXT,
-      cover_image TEXT,
-      rating REAL DEFAULT 5.0,
-      is_active INTEGER DEFAULT 1,
-      open_time TEXT DEFAULT '09:00',
-      close_time TEXT DEFAULT '21:00',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS services (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      shop_id INTEGER NOT NULL REFERENCES shops(id) ON DELETE CASCADE,
-      name TEXT NOT NULL,
-      description TEXT,
-      price REAL NOT NULL,
-      duration INTEGER NOT NULL DEFAULT 60,
-      category TEXT DEFAULT '美甲',
-      image TEXT,
-      is_active INTEGER DEFAULT 1,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS appointments (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL REFERENCES users(id),
-      shop_id INTEGER NOT NULL REFERENCES shops(id),
-      service_id INTEGER NOT NULL REFERENCES services(id),
-      date TEXT NOT NULL,
-      time_slot TEXT NOT NULL,
-      status TEXT DEFAULT 'pending' CHECK(status IN ('pending', 'confirmed', 'completed', 'cancelled')),
-      note TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS reviews (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      appointment_id INTEGER UNIQUE NOT NULL REFERENCES appointments(id),
-      user_id INTEGER NOT NULL REFERENCES users(id),
-      shop_id INTEGER NOT NULL REFERENCES shops(id),
-      rating INTEGER NOT NULL CHECK(rating >= 1 AND rating <= 5),
-      content TEXT,
-      images TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
+      description TEXT DEFAULT '',
+      icon TEXT DEFAULT '🎯',
+      category TEXT DEFAULT '通用',
+      nodes TEXT NOT NULL DEFAULT '[]',
+      prompt_template TEXT DEFAULT '',
+      use_count INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
   `);
 
-  // Seed demo data if empty
-  const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
-  if (userCount === 0) {
-    const hash = bcrypt.hashSync('123456', 10);
+  // Seed example skills if empty
+  const skillCount = db.prepare('SELECT COUNT(*) as count FROM skills').get().count;
+  if (skillCount === 0) {
+    const insertSkill = db.prepare(
+      'INSERT INTO skills (name, description, icon, category, nodes, use_count) VALUES (?, ?, ?, ?, ?, ?)'
+    );
 
-    db.prepare('INSERT INTO users (phone, password, name, role) VALUES (?, ?, ?, ?)').run('13800000001', hash, '美美老师', 'owner');
-    db.prepare('INSERT INTO users (phone, password, name, role) VALUES (?, ?, ?, ?)').run('13800000002', hash, '小樱', 'user');
-    db.prepare('INSERT INTO users (phone, password, name, role) VALUES (?, ?, ?, ?)').run('13800000003', hash, 'Yuna', 'owner');
+    insertSkill.run(
+      '泳装写真工作流',
+      '为泳装摄影生成专业AI绘图提示词，包含性别、场景、风格等完整配置',
+      '🏊',
+      '摄影',
+      JSON.stringify([
+        { id: 's1_n1', type: 'select', label: '人物性别', description: '选择拍摄对象的性别', options: ['女生', '男生', '情侣'], required: true },
+        { id: 's1_n2', type: 'select', label: '泳装颜色', description: '选择泳装的主要颜色', options: ['黑色', '白色', '红色', '蓝色', '花纹/印花', '荧光色', '随机'], required: false },
+        { id: 's1_n3', type: 'select', label: '拍摄场景', description: '选择主要拍摄场景', options: ['海边沙滩', '室外泳池', '室内泳池', '热带度假村', '游艇甲板'], required: true },
+        { id: 's1_n4', type: 'multi-select', label: '风格偏好', description: '选择照片风格（可多选）', options: ['清爽活力', '性感魅力', '休闲度假', '运动竞技', '时尚大片'], required: false },
+        { id: 's1_n5', type: 'select', label: '生成数量', description: '希望生成几张图片', options: ['1张', '3张', '5张', '10张'], required: true },
+        { id: 's1_n6', type: 'textarea', label: '其他要求', description: '输入额外的特殊要求（如服装细节、表情、道具等）', placeholder: '例如：穿着白色比基尼，背对镜头，阳光照射效果...', required: false }
+      ]),
+      12
+    );
 
-    db.prepare('INSERT INTO shops (owner_id, name, description, address, phone, rating) VALUES (?, ?, ?, ?, ?, ?)').run(1, 'Blooming Nail 블루밍', '韩系精致美甲 · 专注手部护理', '朝阳区三里屯路19号院', '13800000001', 4.9);
-    db.prepare('INSERT INTO shops (owner_id, name, description, address, phone, rating) VALUES (?, ?, ?, ?, ?, ?)').run(3, 'Cherry Blossom 체리', '日韩风格 · ins风美甲设计', '海淀区中关村大街1号', '13800000003', 4.8);
+    insertSkill.run(
+      '旅行攻略工作流',
+      '根据个人偏好和预算，生成定制化的详细旅行攻略',
+      '✈️',
+      '旅行',
+      JSON.stringify([
+        { id: 's2_n1', type: 'text', label: '目的地', description: '输入旅行目的地（城市或国家）', placeholder: '例如：日本东京、泰国清迈...', required: true },
+        { id: 's2_n2', type: 'select', label: '旅行天数', description: '计划旅行的天数', options: ['3天以内', '4-5天', '6-7天', '1-2周', '2周以上'], required: true },
+        { id: 's2_n3', type: 'select', label: '预算范围', description: '人均旅行预算', options: ['经济实惠 (<3000元)', '中等 (3000-8000元)', '舒适 (8000-20000元)', '奢华 (>20000元)'], required: true },
+        { id: 's2_n4', type: 'multi-select', label: '旅行偏好', description: '选择感兴趣的活动（可多选）', options: ['美食探索', '自然风光', '历史文化', '购物血拼', '户外冒险', '海岛休闲'], required: true },
+        { id: 's2_n5', type: 'select', label: '出行人数', description: '参与旅行的人数', options: ['独自旅行', '双人旅行', '3-5人小团', '家庭出游', '多人团队'], required: true }
+      ]),
+      8
+    );
 
-    const services = [
-      [1, '纯色美甲', '韩系纯色凝胶甲，温柔显白', 128, 45, '美甲'],
-      [1, '法式美甲', '经典法式 · 优雅气质', 158, 60, '美甲'],
-      [1, '手绘款式', '手绘花朵/线条艺术款', 198, 75, '美甲'],
-      [1, '猫眼美甲', '极光猫眼 · 闪耀夺目', 168, 60, '美甲'],
-      [1, '基础手护', '手部深层护理 + 按摩', 88, 40, '手护'],
-      [2, '韩式简约款', '极简线条 · 高级感', 138, 50, '美甲'],
-      [2, '晕染美甲', '水彩晕染 · 梦幻感', 188, 70, '美甲'],
-      [2, '饰品款美甲', '贴钻/丝带/蝴蝶结装饰', 218, 80, '美甲'],
-      [2, '卸甲 + 基础护理', '温和卸甲 + 手部滋养', 68, 30, '手护'],
-    ];
+    insertSkill.run(
+      '文章创作工作流',
+      '通过结构化输入，生成高质量的文章写作提示词',
+      '✍️',
+      '写作',
+      JSON.stringify([
+        { id: 's3_n1', type: 'text', label: '文章主题', description: '输入文章的核心主题或标题关键词', placeholder: '例如：如何提高工作效率...', required: true },
+        { id: 's3_n2', type: 'select', label: '文章风格', description: '选择写作风格', options: ['专业严谨', '轻松幽默', '故事叙述', '说明教程', '情感抒发'], required: true },
+        { id: 's3_n3', type: 'select', label: '目标读者', description: '文章面向的读者群体', options: ['大众读者', '专业人士', '年轻人', '学生', '企业主管'], required: true },
+        { id: 's3_n4', type: 'select', label: '文章长度', description: '期望的文章字数', options: ['简短 (~300字)', '中等 (~800字)', '详细 (~1500字)', '长篇 (~3000字)'], required: true },
+        { id: 's3_n5', type: 'textarea', label: '关键要点', description: '列出需要包含的关键信息或要点', placeholder: '例如：1. 时间管理技巧 2. 减少干扰 3. 专注工具推荐...', required: false }
+      ]),
+      15
+    );
 
-    const insertService = db.prepare('INSERT INTO services (shop_id, name, description, price, duration, category) VALUES (?, ?, ?, ?, ?, ?)');
-    for (const s of services) {
-      insertService.run(...s);
-    }
-
-    db.prepare('INSERT INTO appointments (user_id, shop_id, service_id, date, time_slot, status) VALUES (?, ?, ?, ?, ?, ?)').run(2, 1, 1, '2026-02-15', '14:00', 'confirmed');
-    db.prepare('INSERT INTO appointments (user_id, shop_id, service_id, date, time_slot, status, note) VALUES (?, ?, ?, ?, ?, ?, ?)').run(2, 2, 6, '2026-02-12', '10:30', 'completed', '想要粉色系的');
-
-    db.prepare('INSERT INTO reviews (appointment_id, user_id, shop_id, rating, content) VALUES (?, ?, ?, ?, ?)').run(2, 2, 2, 5, '超级好看！老师手法很温柔，下次还来～');
+    insertSkill.run(
+      '商品拍摄工作流',
+      '为电商产品图生成专业拍摄方案和AI提示词',
+      '📦',
+      '摄影',
+      JSON.stringify([
+        { id: 's4_n1', type: 'text', label: '产品名称', description: '输入要拍摄的产品名称', placeholder: '例如：无线蓝牙耳机、手提包...', required: true },
+        { id: 's4_n2', type: 'select', label: '拍摄风格', description: '选择产品图的整体风格', options: ['简洁白底', '场景生活化', '创意艺术', '奢华大气', '清新自然'], required: true },
+        { id: 's4_n3', type: 'select', label: '主色调', description: '选择图片的主要色调', options: ['白色/浅色系', '黑色/深色系', '暖色调', '冷色调', '彩色缤纷'], required: true },
+        { id: 's4_n4', type: 'multi-select', label: '拍摄角度', description: '需要哪些拍摄角度（可多选）', options: ['正面', '侧面', '45度角', '俯拍', '细节特写'], required: true },
+        { id: 's4_n5', type: 'textarea', label: '产品特点', description: '描述产品的核心卖点或特色', placeholder: '例如：轻薄设计、防水材质、限量配色...', required: false }
+      ]),
+      6
+    );
   }
 
   db.save();
-
-  // Auto-save every 30 seconds
   setInterval(() => { db.save(); }, 30000);
 
   dbInstance = db;
